@@ -5,12 +5,12 @@ import {
   Grid,
   Play,
   Plus,
-  Sparkles,
   Target,
   Trash2,
   UserPlus,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 import { useTournamentStore } from '../store/useTournamentStore';
 import type { PlayerLevel, TotalCourts } from '../types';
@@ -21,79 +21,6 @@ type PointsOption = 16 | 21 | 24 | 32;
 const DURATION_OPTIONS: DurationOption[] = [60, 90, 120];
 const COURT_OPTIONS: TotalCourts[] = [1, 2];
 const POINTS_OPTIONS: PointsOption[] = [16, 21, 24, 32];
-
-interface DirectorRecommendation {
-  recommendedCourts: TotalCourts;
-  recommendedPoints: PointsOption;
-  estimatedRounds: number;
-  restingPerRound: number;
-  headline: string;
-  rationale: string;
-}
-
-/**
- * Computes a smart Match Director recommendation based on court booking duration
- * and the number of selected players.
- */
-function computeDirectorHint(
-  playerCount: number,
-  durationMinutes: DurationOption
-): DirectorRecommendation {
-  if (playerCount < 4) {
-    return {
-      recommendedCourts: 1,
-      recommendedPoints: 21,
-      estimatedRounds: 0,
-      restingPerRound: 0,
-      headline: `Select ${4 - playerCount} more player${4 - playerCount === 1 ? '' : 's'} to unlock court configuration`,
-      rationale:
-        'A Padel Americano requires at least 4 active players (2 pairs) on 1 court.',
-    };
-  }
-
-  const recommendedCourts: TotalCourts = playerCount >= 8 ? 2 : 1;
-  const activeCapacity = recommendedCourts * 4;
-  const restingPerRound = Math.max(0, playerCount - activeCapacity);
-  const hasRestingRotation = restingPerRound > 0;
-
-  let recommendedPoints: PointsOption = 21;
-
-  if (durationMinutes === 60) {
-    recommendedPoints = hasRestingRotation ? 16 : 21;
-  } else if (durationMinutes === 90) {
-    recommendedPoints = hasRestingRotation ? 21 : 24;
-  } else {
-    // 120 minutes
-    recommendedPoints = hasRestingRotation ? 24 : 32;
-  }
-
-  // Approximate minutes per round (~0.52m per point + 1.5m court switchover)
-  const minutesPerRound = Math.round(recommendedPoints * 0.52 + 1.5);
-  const estimatedRounds = Math.max(
-    3,
-    Math.floor((durationMinutes - 4) / minutesPerRound)
-  );
-
-  const courtLabel =
-    recommendedCourts === 2 ? '2 Courts (8 on court)' : '1 Court (4 on court)';
-
-  const headline = `Recommend ${courtLabel} • ${recommendedPoints} Points (~${estimatedRounds} rounds)`;
-
-  const rationale = hasRestingRotation
-    ? `With ${playerCount} players, ${restingPerRound} player${
-        restingPerRound > 1 ? 's' : ''
-      } will rotate resting each round. Playing to ${recommendedPoints} pts fits ~${estimatedRounds} fast rounds into ${durationMinutes}m and keeps rest rotations fair (Virtual Draw active).`
-    : `All ${playerCount} players stay on court every round with zero sit-outs. Playing to ${recommendedPoints} pts gives ~${estimatedRounds} balanced rounds within your ${durationMinutes}m booking.`;
-
-  return {
-    recommendedCourts,
-    recommendedPoints,
-    estimatedRounds,
-    restingPerRound,
-    headline,
-    rationale,
-  };
-}
 
 interface SetupViewProps {
   onTournamentStarted?: () => void;
@@ -122,15 +49,14 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
   const [newPlayerLevel, setNewPlayerLevel] = useState<PlayerLevel>('A');
   const [nameError, setNameError] = useState('');
 
-  // Booking duration & manual override states
-  const [selectedTime, setSelectedTime] = useState<DurationOption>(90);
-  const [totalCourts, setTotalCourts] = useState<TotalCourts>(
+  // Booking duration, courts, & points states
+  const [selectedTimeMins, setSelectedTimeMins] = useState<DurationOption>(90);
+  const [selectedCourts, setSelectedCourts] = useState<TotalCourts>(
     tournament?.totalCourts ?? 1
   );
-  const [targetPoints, setTargetPoints] = useState<PointsOption>(
+  const [selectedPoints, setSelectedPoints] = useState<PointsOption>(
     (tournament?.targetPoints as PointsOption) ?? 21
   );
-  const [hasManualOverride, setHasManualOverride] = useState(false);
 
   const playerNameInputId = useId();
   const playerNameErrorId = useId();
@@ -141,20 +67,28 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
     return selectedPlayerIds.filter((id) => rosterSet.has(id));
   }, [roster, selectedPlayerIds]);
 
-  const selectedCount = validSelectedIds.length;
+  const totalPlayers = validSelectedIds.length;
 
-  const directorHint = useMemo(
-    () => computeDirectorHint(selectedCount, selectedTime),
-    [selectedCount, selectedTime]
-  );
+  // Dynamic Tournament Predictor Math
+  const matchDurationMins = selectedPoints * 0.85;
+  const totalRounds = Math.floor(selectedTimeMins / matchDurationMins);
+  const activePlayersPerRound = Math.min(totalPlayers, selectedCourts * 4);
+  const waitingPlayers = totalPlayers - activePlayersPerRound;
+  const playerRounds =
+    totalPlayers > 0
+      ? Math.floor(totalRounds * (activePlayersPerRound / totalPlayers))
+      : 0;
 
-  // Sync courts and points with smart hint unless manually overridden
-  const effectiveCourts: TotalCourts = hasManualOverride
-    ? totalCourts
-    : directorHint.recommendedCourts;
-  const effectivePoints: PointsOption = hasManualOverride
-    ? targetPoints
-    : directorHint.recommendedPoints;
+  const predictorText =
+    totalPlayers >= 4
+      ? `⚡️ Expect ~${playerRounds} rounds per player. ${
+          waitingPlayers > 0
+            ? `${waitingPlayers} players sit out each round.`
+            : 'No sit-outs.'
+        }`
+      : `⚡️ Select ${4 - totalPlayers} more player${
+          4 - totalPlayers === 1 ? '' : 's'
+        } to calculate round predictions.`;
 
   const togglePlayerSelection = (playerId: string) => {
     setSelectedPlayerIds((prev) =>
@@ -179,48 +113,17 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
     setIsAddingPlayer(false);
   };
 
-  const handleTimeChange = (duration: DurationOption) => {
-    setSelectedTime(duration);
-    if (!hasManualOverride) {
-      const hint = computeDirectorHint(selectedCount, duration);
-      setTotalCourts(hint.recommendedCourts);
-      setTargetPoints(hint.recommendedPoints);
-    }
-  };
-
-  const handleCourtOverride = (courts: TotalCourts) => {
-    setHasManualOverride(true);
-    setTotalCourts(courts);
-  };
-
-  const handlePointsOverride = (points: PointsOption) => {
-    setHasManualOverride(true);
-    setTargetPoints(points);
-  };
-
-  const handleApplyRecommendation = () => {
-    setHasManualOverride(false);
-    setTotalCourts(directorHint.recommendedCourts);
-    setTargetPoints(directorHint.recommendedPoints);
-  };
-
   const handleStartTournament = () => {
-    if (selectedCount < 4) return;
+    if (totalPlayers < 4) return;
 
     const selectedSet = new Set(validSelectedIds);
     const activePlayers = roster.filter((p) => selectedSet.has(p.id));
-
-    // Estimate target rounds based on effective points and time
-    const minutesPerRound = Math.round(effectivePoints * 0.52 + 1.5);
-    const targetRounds = Math.max(
-      4,
-      Math.floor((selectedTime - 4) / minutesPerRound)
-    );
+    const targetRounds = Math.max(1, totalRounds);
 
     createTournament({
       activePlayers,
-      totalCourts: effectiveCourts,
-      targetPoints: effectivePoints,
+      totalCourts: selectedCourts,
+      targetPoints: selectedPoints,
       targetRounds,
     });
 
@@ -244,12 +147,12 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
                 Players Selected:{' '}
                 <span
                   className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-bold ${
-                    selectedCount >= 4
+                    totalPlayers >= 4
                       ? 'bg-lime-300/60 text-slate-950'
                       : 'bg-amber-100 text-amber-900'
                   }`}
                 >
-                  {selectedCount}
+                  {totalPlayers}
                 </span>
               </p>
             </div>
@@ -478,13 +381,13 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
 
         <div className="mt-4 grid grid-cols-3 gap-3">
           {DURATION_OPTIONS.map((minutes) => {
-            const isSelected = selectedTime === minutes;
+            const isSelected = selectedTimeMins === minutes;
             return (
               <button
                 key={minutes}
                 type="button"
                 aria-pressed={isSelected}
-                onClick={() => handleTimeChange(minutes)}
+                onClick={() => setSelectedTimeMins(minutes)}
                 className={`flex min-h-[52px] flex-col items-center justify-center rounded-xl border-2 px-3 py-2.5 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 ${
                   isSelected
                     ? 'border-slate-900 bg-lime-400 text-slate-950 shadow-sm'
@@ -498,72 +401,11 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
         </div>
       </section>
 
-      {/* 3. Smart Configuration Card (Match Director Hint) */}
-      <section
-        aria-label="Match Director Hint"
-        className="rounded-2xl border-2 border-lime-400 bg-gradient-to-br from-lime-50 via-white to-slate-50 p-5 shadow-sm"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-lime-400 text-slate-950">
-              <Sparkles className="h-4 w-4" aria-hidden="true" />
-            </span>
-            <div>
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
-                Smart Configuration
-              </span>
-              <h2 className="text-sm font-extrabold text-slate-900">
-                Match Director Hint
-              </h2>
-            </div>
-          </div>
-
-          {hasManualOverride && selectedCount >= 4 && (
-            <button
-              type="button"
-              onClick={handleApplyRecommendation}
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 shadow-sm transition hover:bg-slate-100"
-            >
-              Reset to Hint
-            </button>
-          )}
-        </div>
-
-        <p className="mt-3 text-sm font-bold text-slate-900">
-          {directorHint.headline}
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-600">
-          {directorHint.rationale}
-        </p>
-
-        {selectedCount >= 4 && (
-          <div className="mt-3.5 flex flex-wrap gap-2">
-            <span className="inline-flex items-center rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-bold text-lime-400">
-              Recommended: {directorHint.recommendedCourts}{' '}
-              {directorHint.recommendedCourts === 1 ? 'Court' : 'Courts'}
-            </span>
-            <span className="inline-flex items-center rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-bold text-lime-400">
-              Target: {directorHint.recommendedPoints} pts / match
-            </span>
-            {directorHint.restingPerRound > 0 && (
-              <span className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-                Resting: {directorHint.restingPerRound} / round
-              </span>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* 4. Manual Overrides */}
+      {/* 3. Courts & Points Configuration */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-slate-900">
-            Manual Overrides
-          </h2>
-          <span className="text-xs font-medium text-slate-500">
-            {hasManualOverride ? 'Custom Override Active' : 'Auto-synced with Hint'}
-          </span>
-        </div>
+        <h2 className="text-base font-bold text-slate-900">
+          Court &amp; Match Format
+        </h2>
 
         <div className="mt-4 space-y-4">
           {/* Courts Toggle */}
@@ -574,13 +416,13 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               {COURT_OPTIONS.map((courtOpt) => {
-                const isSelected = effectiveCourts === courtOpt;
+                const isSelected = selectedCourts === courtOpt;
                 return (
                   <button
                     key={courtOpt}
                     type="button"
                     aria-pressed={isSelected}
-                    onClick={() => handleCourtOverride(courtOpt)}
+                    onClick={() => setSelectedCourts(courtOpt)}
                     className={`flex min-h-[48px] items-center justify-center gap-2 rounded-xl border-2 px-4 py-2.5 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 ${
                       isSelected
                         ? 'border-slate-900 bg-slate-900 text-lime-400 shadow-sm'
@@ -607,13 +449,13 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
             </div>
             <div className="grid grid-cols-4 gap-2.5">
               {POINTS_OPTIONS.map((ptsOpt) => {
-                const isSelected = effectivePoints === ptsOpt;
+                const isSelected = selectedPoints === ptsOpt;
                 return (
                   <button
                     key={ptsOpt}
                     type="button"
                     aria-pressed={isSelected}
-                    onClick={() => handlePointsOverride(ptsOpt)}
+                    onClick={() => setSelectedPoints(ptsOpt)}
                     className={`flex min-h-[48px] flex-col items-center justify-center rounded-xl border-2 px-2 py-2 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 ${
                       isSelected
                         ? 'border-slate-900 bg-slate-900 text-lime-400 shadow-sm'
@@ -630,15 +472,28 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
         </div>
       </section>
 
+      {/* 4. Minimalist Dynamic Tournament Predictor */}
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-2.5 rounded-2xl border border-lime-400 bg-lime-50/90 px-4 py-3.5 shadow-sm"
+      >
+        <Zap
+          className="h-4 w-4 shrink-0 fill-lime-400 text-slate-950"
+          aria-hidden="true"
+        />
+        <p className="text-sm font-extrabold text-slate-900">{predictorText}</p>
+      </div>
+
       {/* 5. Pinned Massive Start Tournament Button */}
       <div className="fixed inset-x-0 bottom-16 z-20 border-t border-slate-200/80 bg-slate-50/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto max-w-xl">
           <button
             type="button"
-            disabled={selectedCount < 4}
+            disabled={totalPlayers < 4}
             onClick={handleStartTournament}
             className={`flex min-h-[56px] w-full items-center justify-center gap-2.5 rounded-2xl px-6 py-4 text-base font-extrabold tracking-tight shadow-md transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 ${
-              selectedCount >= 4
+              totalPlayers >= 4
                 ? 'bg-lime-400 text-slate-950 hover:bg-lime-300 active:scale-[0.99]'
                 : 'cursor-not-allowed bg-slate-200 text-slate-500'
             }`}
@@ -648,9 +503,9 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
               aria-hidden="true"
             />
             <span>
-              {selectedCount >= 4
-                ? `Start Tournament (${selectedCount} Players • ${effectiveCourts}C • ${effectivePoints} Pts)`
-                : `Select at least 4 Players (${selectedCount}/4)`}
+              {totalPlayers >= 4
+                ? `Start Tournament (${totalPlayers} Players • ${selectedCourts}C • ${selectedPoints} Pts)`
+                : `Select at least 4 Players (${totalPlayers}/4)`}
             </span>
           </button>
         </div>
