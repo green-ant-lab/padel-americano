@@ -1,9 +1,8 @@
-import React, { useId, useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import {
   Check,
   Clock,
   Grid,
-  History,
   Play,
   Plus,
   Sparkles,
@@ -96,18 +95,6 @@ function computeDirectorHint(
   };
 }
 
-function formatHistoryDate(isoOrTimestamp: string): string {
-  const parsed = new Date(isoOrTimestamp);
-  if (Number.isNaN(parsed.getTime())) return isoOrTimestamp;
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(parsed);
-}
-
 interface SetupViewProps {
   onTournamentStarted?: () => void;
 }
@@ -116,14 +103,10 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
   const {
     roster,
     tournament,
-    history,
     addRosterPlayer,
     removeRosterPlayer,
     createTournament,
-    clearHistory,
   } = useTournamentStore();
-
-  const historyDialogRef = useRef<HTMLDialogElement | null>(null);
 
   // Initialize selected players from active tournament if present, otherwise all roster players
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>(() => {
@@ -151,7 +134,6 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
 
   const playerNameInputId = useId();
   const playerNameErrorId = useId();
-  const historyDialogTitleId = useId();
 
   // Filter selected IDs against existing roster
   const validSelectedIds = useMemo(() => {
@@ -165,13 +147,6 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
     () => computeDirectorHint(selectedCount, selectedTime),
     [selectedCount, selectedTime]
   );
-
-  // Sort history newest first
-  const sortedHistory = useMemo(() => {
-    return [...history].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [history]);
 
   // Sync courts and points with smart hint unless manually overridden
   const effectiveCourts: TotalCourts = hasManualOverride
@@ -252,46 +227,8 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
     onTournamentStarted?.();
   };
 
-  // Fallback for browsers without native `<dialog closedby="any">` support (e.g., Safari)
-  const handleHistoryDialogBackdropClick = (
-    event: React.MouseEvent<HTMLDialogElement>
-  ) => {
-    const dialog = historyDialogRef.current;
-    if (!dialog) return;
-    if ('closedBy' in HTMLDialogElement.prototype) return;
-    if (event.target !== dialog) return;
-
-    const rect = dialog.getBoundingClientRect();
-    const isDialogContent =
-      rect.top <= event.clientY &&
-      event.clientY <= rect.top + rect.height &&
-      rect.left <= event.clientX &&
-      event.clientX <= rect.left + rect.width;
-
-    if (!isDialogContent) {
-      dialog.close();
-    }
-  };
-
   return (
     <div className="space-y-5 pb-36">
-      {/* Top Secondary Action: View Tournament History */}
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => historyDialogRef.current?.showModal()}
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border-2 border-slate-300 bg-white px-4 py-2 text-xs font-extrabold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-        >
-          <History className="h-4 w-4 text-slate-700" aria-hidden="true" />
-          <span>View Tournament History</span>
-          {sortedHistory.length > 0 && (
-            <span className="inline-flex items-center justify-center rounded-md bg-slate-900 px-1.5 py-0.5 text-[11px] font-black text-lime-400">
-              {sortedHistory.length}
-            </span>
-          )}
-        </button>
-      </div>
-
       {/* 1. Player Roster Section */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -718,132 +655,6 @@ export default function SetupView({ onTournamentStarted }: SetupViewProps) {
           </button>
         </div>
       </div>
-
-      {/* Tournament History Modal Dialog */}
-      <dialog
-        ref={historyDialogRef}
-        {...({ closedby: 'any' } as Record<string, string>)}
-        aria-labelledby={historyDialogTitleId}
-        onClick={handleHistoryDialogBackdropClick}
-        className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/50 backdrop:backdrop-blur-[2px]"
-      >
-        <div className="flex max-h-[82vh] flex-col">
-          {/* Modal Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-lime-400">
-                <History className="h-4 w-4" aria-hidden="true" />
-              </span>
-              <div>
-                <h2
-                  id={historyDialogTitleId}
-                  className="text-base font-extrabold text-slate-900"
-                >
-                  Tournament History
-                </h2>
-                <p className="text-xs text-slate-500">
-                  {sortedHistory.length === 0
-                    ? 'No past sessions saved yet'
-                    : `${sortedHistory.length} past tournament${
-                        sortedHistory.length === 1 ? '' : 's'
-                      } archived`}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => historyDialogRef.current?.close()}
-              aria-label="Close tournament history"
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
-
-          {/* Modal Scrollable Body */}
-          <div className="flex-1 space-y-3 overflow-y-auto overscroll-y-contain p-5">
-            {sortedHistory.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center">
-                <p className="text-sm font-bold text-slate-700">
-                  No Past Tournaments Yet
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Completed tournaments are automatically saved here when you
-                  finish or reset a session.
-                </p>
-              </div>
-            ) : (
-              sortedHistory.map((item) => {
-                const topThree = item.finalStandings.slice(0, 3);
-                const medals = ['1st 🥇', '2nd 🥈', '3rd 🥉'] as const;
-
-                return (
-                  <article
-                    key={item.id}
-                    className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
-                      <span className="text-xs font-extrabold text-slate-900">
-                        {formatHistoryDate(item.date)}
-                      </span>
-                      <span className="rounded-lg bg-slate-900 px-2.5 py-0.5 text-[11px] font-bold text-lime-400">
-                        {item.configuration}
-                      </span>
-                    </div>
-
-                    {/* Compact Top-3 Podium List */}
-                    <ol className="mt-3 space-y-1.5">
-                      {topThree.map((standing, idx) => (
-                        <li
-                          key={standing.id}
-                          className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs"
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 font-extrabold text-slate-700">
-                              {medals[idx]}
-                            </span>
-                            <span className="truncate font-extrabold text-slate-900">
-                              {standing.name}
-                            </span>
-                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
-                              {standing.level}
-                            </span>
-                          </div>
-
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {standing.virtualPointsAdded > 0 && (
-                              <span className="rounded bg-lime-200/80 px-1.5 py-0.5 text-[10px] font-bold text-slate-900">
-                                +{standing.virtualPointsAdded} VP
-                              </span>
-                            )}
-                            <span className="rounded-md bg-slate-900 px-2 py-0.5 font-black text-lime-400">
-                              {standing.totalPoints} pts
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                  </article>
-                );
-              })
-            )}
-
-            {/* Clear History Text Button at Very Bottom */}
-            {sortedHistory.length > 0 && (
-              <div className="pt-2 text-center">
-                <button
-                  type="button"
-                  onClick={() => clearHistory()}
-                  className="text-xs font-bold text-rose-600 underline-offset-2 transition hover:text-rose-700 hover:underline"
-                >
-                  Clear History
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </dialog>
     </div>
   );
 }

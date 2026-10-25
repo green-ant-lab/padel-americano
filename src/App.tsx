@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Settings, Zap, BarChart } from 'lucide-react';
+import { Settings, Zap, BarChart, Trophy } from 'lucide-react';
 import { useTournamentStore } from './store/useTournamentStore';
 import SetupView from './components/SetupView';
 import RoundsView from './components/RoundsView';
 import RankingView from './components/RankingView';
+import HistoryView from './components/HistoryView';
 
-export type ActiveTab = 'setup' | 'rounds' | 'ranking';
+export type ActiveTab = 'setup' | 'rounds' | 'ranking' | 'history';
 
 export default function App() {
   const tournament = useTournamentStore((state) => state.tournament);
+  const historyCount = useTournamentStore((state) => state.history.length);
   const subscribeToFirestore = useTournamentStore(
     (state) => state.subscribeToFirestore
   );
@@ -56,6 +58,12 @@ export default function App() {
       id: 'ranking',
       label: 'Ranking',
       icon: BarChart,
+    },
+    {
+      id: 'history',
+      label: 'History',
+      icon: Trophy,
+      badge: historyCount > 0 ? String(historyCount) : undefined,
     },
   ];
 
@@ -124,6 +132,7 @@ export default function App() {
             onNavigateToRounds={() => setActiveTab('rounds')}
           />
         )}
+        {activeTab === 'history' && <HistoryView />}
       </main>
 
       {/* Fixed Bottom Navigation Bar */}
@@ -131,7 +140,7 @@ export default function App() {
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur"
       >
-        <div className="mx-auto grid h-16 max-w-xl grid-cols-3 px-2">
+        <div className="mx-auto grid h-16 max-w-xl grid-cols-4 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -149,7 +158,7 @@ export default function App() {
                 }`}
               >
                 <div
-                  className={`flex items-center gap-1 rounded-full px-3.5 py-1 transition ${
+                  className={`flex items-center gap-1 rounded-full px-3 py-1 transition ${
                     isActive ? 'bg-lime-400 text-slate-950 shadow-sm' : ''
                   }`}
                 >
